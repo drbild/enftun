@@ -17,6 +17,7 @@
 #include "ip.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <arpa/inet.h>
@@ -78,6 +79,7 @@ int ip6_prefix_str(const struct in6_addr* addr,
     return 0;
 }
 
+#if 1
 int
 ip6_prefix(const char* str,
            struct in6_addr* prefix,
@@ -90,6 +92,127 @@ ip6_prefix(const char* str,
         return 0;
     }
 
-    // TODO: actually parse strings of the form a:c:b::d/p
+    char buf[64];
+    strncpy(buf, str, sizeof(buf));
+
+    char *slash = strchr(buf, '/');
+    if ( slash ) {
+        *slash = 0;
+        *prefixlen = atoi(slash+1);
+
+        if ( 128 < *prefixlen )
+            return -1;
+
+        return 1 == inet_pton(AF_INET6, buf, prefix) ? 0 : -1;
+    }
+
     return -1;
 }
+#else
+int
+ip6_prefix(const char* s,
+           struct in6_addr* prefix,
+           uint8_t* prefixlen)
+{
+    int field = 0;
+    uint16_t field_value = 0;
+
+    while(field < 8) {
+        switch(*s) {
+        case '/':
+            if ( field != 7 )
+                goto error;
+
+            prefix->s6_addr16[field] = htons(field_value);
+
+            // Get prefix length
+            s++;
+            *prefixlen = 0;
+
+            while (*s) {
+                switch(*s) {
+                case '0':
+                case '1':
+                case '2':
+                case '3':
+                case '4':
+                case '5':
+                case '6':
+                case '7':
+                case '8':
+                case '9':
+                    *prefixlen = 10*(*prefixlen) + *s - '0';
+                    break;
+                default:
+                    goto error;
+                }
+
+                s++;
+            }
+
+            if ( 128 < *prefixlen )
+                goto error;
+
+            return 0;
+        case '0':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9':
+            field_value = (field_value << 4) | (*s - '0');
+            break;
+        case 'a':
+        case 'b':
+        case 'c':
+        case 'd':
+        case 'e':
+        case 'f':
+            field_value = (field_value << 4) | (10 + *s - 'a');
+            break;
+        case 'A':
+        case 'B':
+        case 'C':
+        case 'D':
+        case 'E':
+        case 'F':
+            field_value = (field_value << 4) | (10 + *s - 'A');
+            break;
+        case ':':
+            prefix->s6_addr16[field++] = htons(field_value);
+            field_value = 0;
+
+            if ( ':' == s[1] ) {
+                // double colon found, this can only happen once
+                // is indication that at least one 0 is missing
+
+                s++;
+                prefix->s6_addr16[field++] = 0;
+
+                // more zeros may be missing
+                int remaining_fields = 1;
+                for (const char *p = s+1; *p; ++p)
+                    if ( *p == ':' )
+                        remaining_fields++;
+
+                while (8 > field + remaining_fields)
+                    prefix->s6_addr16[field++] = 0;
+            }
+            break;
+        default:
+            // Invalid character found in address
+            goto error;
+        }
+
+        s++;
+    }
+
+error:
+
+    return -1;
+}
+#endif
