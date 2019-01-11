@@ -77,3 +77,19 @@ int ip6_prefix_str(const struct in6_addr* addr,
 
     return 0;
 }
+
+int
+ip6_prefix(const char* str,
+           struct in6_addr* prefix,
+           uint8_t* prefixlen)
+{
+    if (0 == strcmp(str, "default"))
+    {
+        *prefix = ip6_default;
+        *prefixlen = 0;
+        return 0;
+    }
+
+    // TODO: actually parse strings of the form a:c:b::d/p
+    return -1;
+}
